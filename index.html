@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>金价</title>
+<style>
+  :root {
+    --bg: #0b0e14; --bg2: #11151f;
+    --card: rgba(255, 255, 255, 0.04);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --text: #e6e8ee; --text-dim: #8a93a6;
+    --up: #f6465d; --down: #2ebd85;
+    --gold: #f5c451; --accent: #f5c451;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    background: radial-gradient(1200px 800px at 80% -10%, #1a2030 0%, var(--bg) 55%),
+                radial-gradient(900px 600px at -10% 110%, #15212e 0%, var(--bg) 60%);
+    color: var(--text); min-height: 100%; -webkit-font-smoothing: antialiased;
+    padding: 24px 16px 48px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, #f9d976, #f5c451 60%, #d9a521);
+    display: grid; place-items: center; font-size: 22px;
+    box-shadow: 0 6px 20px rgba(245, 196, 81, 0.25);
+  }
+  .brand h1 { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+  .brand p { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--down); }
+  .dot.live { background: var(--up); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(246,70,93,.5);} 70%{box-shadow:0 0 0 8px rgba(246,70,93,0);} 100%{box-shadow:0 0 0 0 rgba(246,70,93,0);} }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+  @media (max-width: 680px){ .cards { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    padding: 20px 22px; backdrop-filter: blur(8px); position: relative; overflow: hidden;
+  }
+  .card .label { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  .card .label .src { font-size: 11px; color: var(--gold); border: 1px solid rgba(245,196,81,.4); padding: 1px 6px; border-radius: 6px; }
+  .card .value { font-size: 38px; font-weight: 800; margin-top: 10px; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+  .card .value .unit { font-size: 15px; font-weight: 600; color: var(--text-dim); margin-left: 6px; }
+  .card .value .est { font-size: 11px; color: var(--text-dim); margin-left: 8px; border: 1px solid var(--card-border); padding: 1px 6px; border-radius: 6px; vertical-align: middle; }
+  .card .meta { margin-top: 8px; font-size: 13px; color: var(--text-dim); display: flex; gap: 14px; flex-wrap: wrap; }
+  .chg.up { color: var(--up); }
+  .chg.down { color: var(--down); }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    padding: 18px 20px; margin-bottom: 18px; backdrop-filter: blur(8px);
+  }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+  .panel-head h2 { font-size: 15px; font-weight: 600; }
+  .panel-head .hint { font-size: 12px; color: var(--text-dim); }
+  canvas { width: 100%; height: 320px; display: block; }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+  .field input[type="number"], .field select {
+    width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.05);
+    border: 1px solid var(--card-border); color: var(--text); font-size: 14px; outline: none;
+  }
+  .field input:focus, .field select:focus { border-color: var(--gold); }
+  .alert-row { display: flex; gap: 10px; align-items: flex-end; }
+  .alert-row .field { flex: 1; margin: 0; }
+  .btn {
+    padding: 10px 16px; border-radius: 10px; border: 1px solid var(--card-border);
+    background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; font-size: 13px;
+    transition: .15s; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--gold); color: var(--gold); }
+  .btn.primary { background: var(--gold); color: #1a1300; border-color: var(--gold); font-weight: 700; }
+  .btn.primary:hover { filter: brightness(1.08); color:#1a1300; }
+
+  .stats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; font-size: 13px; }
+  .stats div span { color: var(--text-dim); }
+  .stats div b { font-variant-numeric: tabular-nums; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
+    background: #1c2230; border: 1px solid var(--card-border); color: var(--text);
+    padding: 14px 20px; border-radius: 12px; font-size: 14px; opacity: 0; pointer-events: none;
+    transition: .3s; box-shadow: 0 12px 40px rgba(0,0,0,.4); max-width: 90vw; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast .t-title { font-weight: 700; margin-bottom: 2px; }
+  .toast.up { border-color: var(--up); }
+  .toast.down { border-color: var(--down); }
+
+  footer { text-align: center; color: var(--text-dim); font-size: 12px; margin-top: 24px; line-height: 1.7; }
+  footer a { color: var(--gold); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">🪙</div>
+      <div>
+        <h1>金价</h1>
+        <p>国内直连 · 腾讯财经行情 · 自动刷新</p>
+      </div>
+    </div>
+    <div class="status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">连接中…</span>
+    </div>
+  </header>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">🌍 国际现货金价 <span class="src">纽约金</span></div>
+      <div class="value" id="usdValue">—<span class="unit">美元/盎司</span></div>
+      <div class="meta">
+        <span class="chg" id="usdChg">—</span>
+        <span id="usdTime">—</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="label">🇨🇳 国内金价 <span class="src">上海金交所</span></div>
+      <div class="value" id="cnyValue">—<span class="unit">元/克</span></div>
+      <div class="meta">
+        <span class="chg" id="cnyChg">—</span>
+        <span id="rateInfo">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>📈 国内金价走势（本次监控会话）</h2>
+      <span class="hint" id="chartHint">—</span>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="stats" id="stats">
+      <div><span>最高</span> <b id="statMax">—</b></div>
+      <div><span>最低</span> <b id="statMin">—</b></div>
+      <div><span>均价</span> <b id="statAvg">—</b></div>
+      <div><span>采样点</span> <b id="statN">0</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>⚙️ 监控设置</h2></div>
+    <div class="controls">
+      <div class="field">
+        <label>自动刷新间隔</label>
+        <select id="interval">
+          <option value="15000">15 秒</option>
+          <option value="30000" selected>30 秒</option>
+          <option value="60000">1 分钟</option>
+          <option value="300000">5 分钟</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>汇率（仅金交所取不到时换算兜底，1美元=？元）</label>
+        <input type="number" id="rateInput" value="7.10" step="0.01" />
+      </div>
+      <div class="field">
+        <label>价格预警（元/克）</label>
+        <div class="alert-row">
+          <div class="field"><input type="number" id="alertAbove" placeholder="高于 ≥" step="0.1" /></div>
+          <div class="field"><input type="number" id="alertBelow" placeholder="低于 ≤" step="0.1" /></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>操作</label>
+        <div class="alert-row">
+          <button class="btn" id="refreshBtn">立即刷新</button>
+          <button class="btn primary" id="notifyBtn">开启价格提醒</button>
+          <button class="btn" id="clearBtn">清空走势</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    数据源：<a href="https://gu.qq.com" target="_blank" rel="noopener">腾讯财经行情</a>
+    （纽约金 hf_GC / 上海金交所 AU99.99）<br/>
+    国内金价优先取上海金交所实时价；非交易时段或接口异常时，按「国际金价 ÷ 31.1035 × 汇率」估算并标注。
+  </footer>
+</div>
+
+<div class="toast" id="toast">
+  <div class="t-title" id="toastTitle"></div>
+  <div id="toastBody"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const OZ_TO_G = 31.1034768;            // 1 金衡盎司 = 31.1034768 克
+  const TENCENT = "https://qt.gtimg.cn/q=";
+  const GOLD_CODE = "hf_GC";             // 纽约黄金（美元/盎司）
+  const DOMESTIC_CODE = "sge_au9999";    // 上海金交所 AU99.99（元/克）
+  const HISTORY_KEY = "goldMonitorHistory_v2";
+  const MAX_POINTS = 500;
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    statusDot: $("statusDot"), statusText: $("statusText"),
+    usdValue: $("usdValue"), usdChg: $("usdChg"), usdTime: $("usdTime"),
+    cnyValue: $("cnyValue"), cnyChg: $("cnyChg"), rateInfo: $("rateInfo"),
+    chart: $("chart"), chartHint: $("chartHint"),
+    statMax: $("statMax"), statMin: $("statMin"), statAvg: $("statAvg"), statN: $("statN"),
+    interval: $("interval"), rateInput: $("rateInput"),
+    alertAbove: $("alertAbove"), alertBelow: $("alertBelow"),
+    notifyBtn: $("notifyBtn"), clearBtn: $("clearBtn"), refreshBtn: $("refreshBtn"),
+    toast: $("toast"), toastTitle: $("toastTitle"), toastBody: $("toastBody"),
+  };
+
+  let history = loadHistory();
+  let lastUsd = null, lastCny = null, lastRate = 7.1;
+  let timer = null, displayTimer = null, nextAt = 0;
+
+  function loadHistory() {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function saveHistory() {
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
+  }
+  function fmt(n, d = 2) {
+    return Number(n).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function setStatus(live, text) {
+    els.statusDot.className = "dot" + (live ? " live" : "");
+    els.statusText.textContent = text;
+  }
+  function showToast(title, body, type) {
+    els.toastTitle.textContent = title;
+    els.toastBody.textContent = body;
+    els.toast.className = "toast show" + (type ? " " + type : "");
+    setTimeout(() => { els.toast.className = "toast" + (type ? " " + type : ""); }, 5000);
+  }
+
+  // —— 腾讯行情：用 <script> 标签加载，绕开浏览器跨域限制 ——
+  function jsonpTencent(codes) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = TENCENT + codes.join(",") + "&_=" + Date.now();
+      s.charset = "gbk";
+      const to = setTimeout(() => { done(); reject(new Error("请求超时")); }, 9000);
+      function done() { clearTimeout(to); s.onload = s.onerror = null; if (s.parentNode) s.parentNode.removeChild(s); }
+      s.onload = () => { done(); resolve(); };
+      s.onerror = () => { done(); reject(new Error("加载失败")); };
+      document.head.appendChild(s);
+    });
+  }
+  function getTencentVar(code) {
+    try { return window["v_" + code]; } catch (e) { return undefined; }
+  }
+  function pickPrice(arr, lo, hi) {
+    for (const p of arr) {
+      const n = parseFloat(p);
+      if (!isNaN(n) && n >= lo && n <= hi) return n;
+    }
+    return null;
+  }
+
+  function renderChange(elt, cur, prev) {
+    if (prev === null || prev === undefined) { elt.textContent = "—"; elt.className = "chg"; return; }
+    const diff = cur - prev, pct = (diff / prev) * 100, up = diff >= 0, arrow = up ? "▲" : "▼";
+    elt.textContent = `${arrow} ${up ? "+" : ""}${fmt(diff)} (${up ? "+" : ""}${fmt(pct)}%)`;
+    elt.className = "chg " + (up ? "up" : "down");
+  }
+  function renderDayChange(elt, price, change) {
+    if (change === null || isNaN(change)) { elt.textContent = "—"; elt.className = "chg"; return; }
+    const pct = (change / (price - change)) * 100, up = change >= 0, arrow = up ? "▲" : "▼";
+    elt.textContent = `${arrow} ${up ? "+" : ""}${fmt(change)} (${up ? "+" : ""}${fmt(pct)}%)`;
+    elt.className = "chg " + (up ? "up" : "down");
+  }
+
+  function updateStats() {
+    if (!history.length) {
+      els.statMax.textContent = els.statMin.textContent = els.statAvg.textContent = "—";
+      els.statN.textContent = "0";
+      els.chartHint.textContent = "暂无数据，正在采集中…";
+      return;
+    }
+    const v = history.map(h => h.cny);
+    const mx = Math.max(...v), mn = Math.min(...v), avg = v.reduce((a, b) => a + b, 0) / v.length;
+    els.statMax.textContent = fmt(mx) + " 元";
+    els.statMin.textContent = fmt(mn) + " 元";
+    els.statAvg.textContent = fmt(avg) + " 元";
+    els.statN.textContent = history.length;
+    const first = new Date(history[0].t), last = new Date(history[history.length - 1].t);
+    const mins = Math.round((last - first) / 60000);
+    els.chartHint.textContent = `已监控 ${mins} 分钟 · 始于 ${first.toLocaleTimeString("zh-CN")}`;
+  }
+
+  function drawChart() {
+    const cv = els.chart, dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    if (history.length < 2) {
+      ctx.fillStyle = "#8a93a6"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("数据采集中（至少需要 2 个采样点绘制曲线）", w / 2, h / 2);
+      return;
+    }
+    const padL = 56, padR = 16, padT = 16, padB = 28;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const vals = history.map(p => p.cny);
+    let mn = Math.min(...vals), mx = Math.max(...vals);
+    if (mn === mx) { mn -= 1; mx += 1; }
+    const range = mx - mn; mn -= range * 0.12; mx += range * 0.12;
+    const xAt = (i) => padL + (plotW * i) / (history.length - 1);
+    const yAt = (v) => padT + plotH * (1 - (v - mn) / (mx - mn));
+
+    ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.fillStyle = "#8a93a6";
+    ctx.font = "11px sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    const gridN = 4;
+    for (let i = 0; i <= gridN; i++) {
+      const v = mn + ((mx - mn) * i) / gridN, y = yAt(v);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.fillText(fmt(v, 0), padL - 8, y);
+    }
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    const first = new Date(history[0].t), lastT = new Date(history[history.length - 1].t);
+    ctx.fillText(first.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), padL, h - padB + 8);
+    ctx.fillText(lastT.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), w - padR, h - padB + 8);
+
+    const up = vals[vals.length - 1] >= vals[0];
+    const lineColor = up ? "#f6465d" : "#2ebd85";
+    const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+    grad.addColorStop(0, up ? "rgba(246,70,93,0.28)" : "rgba(46,189,133,0.28)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.beginPath(); ctx.moveTo(xAt(0), yAt(vals[0]));
+    for (let i = 1; i < vals.length; i++) ctx.lineTo(xAt(i), yAt(vals[i]));
+    ctx.lineTo(xAt(vals.length - 1), padT + plotH); ctx.lineTo(xAt(0), padT + plotH);
+    ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+    ctx.beginPath(); ctx.moveTo(xAt(0), yAt(vals[0]));
+    for (let i = 1; i < vals.length; i++) ctx.lineTo(xAt(i), yAt(vals[i]));
+    ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(xAt(vals.length - 1), yAt(vals[vals.length - 1]), 4, 0, Math.PI * 2);
+    ctx.fillStyle = lineColor; ctx.fill();
+  }
+
+  let lastAlertKey = "";
+  function fireAlert(type, msg, cny) {
+    const key = type + ":" + msg;
+    if (key === lastAlertKey) return;
+    lastAlertKey = key;
+    showToast("🔔 价格预警触发", `${msg}（当前 ${fmt(cny)} 元/克）`, type);
+    if (Notification && Notification.permission === "granted") {
+      new Notification("黄金价格预警", { body: `${msg}（当前 ${fmt(cny)} 元/克）` });
+    }
+  }
+  function checkAlerts(cny) {
+    const above = parseFloat(els.alertAbove.value);
+    const below = parseFloat(els.alertBelow.value);
+    if (!isNaN(above) && cny >= above) fireAlert("up", `国内金价已 ≥ ${fmt(above)} 元/克`, cny);
+    if (!isNaN(below) && cny <= below) fireAlert("down", `国内金价已 ≤ ${fmt(below)} 元/克`, cny);
+  }
+
+  async function refresh() {
+    setStatus(false, "更新中…");
+    try {
+      await jsonpTencent([GOLD_CODE, DOMESTIC_CODE]);
+      const g = getTencentVar(GOLD_CODE);
+      if (!g) throw new Error("金价数据异常");
+      const gp = g.split(",");
+      const usd = parseFloat(gp[0]);
+      if (isNaN(usd)) throw new Error("金价解析失败");
+      const usdDayChg = gp.length > 1 ? parseFloat(gp[1]) : null;
+
+      // 国内金价：优先上海金交所实时价
+      let cny = null, cnyEstimated = false;
+      const d = getTencentVar(DOMESTIC_CODE);
+      if (d) cny = pickPrice(d.split(","), 200, 5000);
+      if (cny === null) {
+        const rate = parseFloat(els.rateInput.value) || 7.1;
+        cny = (usd / OZ_TO_G) * rate;
+        cnyEstimated = true;
+      }
+
+      const prevUsd = lastUsd, prevCny = lastCny;
+      lastUsd = usd; lastCny = cny;
+
+      els.usdValue.innerHTML = `${fmt(usd)}<span class="unit">美元/盎司</span>`;
+      els.cnyValue.innerHTML = `${fmt(cny)}<span class="unit">元/克</span>` + (cnyEstimated ? '<span class="est">估算</span>' : '');
+      renderDayChange(els.usdChg, usd, usdDayChg);
+      renderChange(els.cnyChg, cny, prevCny);
+      els.usdTime.textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN");
+      els.rateInfo.textContent = cnyEstimated
+        ? `汇率 ${fmt(parseFloat(els.rateInput.value) || 7.1, 3)}（手动换算）`
+        : "上海金交所实时";
+
+      history.push({ t: Date.now(), usd, cny });
+      if (history.length > MAX_POINTS) history = history.slice(-MAX_POINTS);
+      saveHistory();
+
+      updateStats(); drawChart(); checkAlerts(cny);
+      setStatus(true, "已更新 " + new Date().toLocaleTimeString("zh-CN"));
+    } catch (e) {
+      setStatus(false, "获取失败：" + e.message + "（将自动重试）");
+    }
+  }
+
+  function scheduleNext() {
+    if (timer) clearTimeout(timer);
+    const iv = Number(els.interval.value);
+    nextAt = Date.now() + iv;
+    timer = setTimeout(async () => { await refresh(); scheduleNext(); }, iv);
+  }
+  function startDisplay() {
+    if (displayTimer) clearInterval(displayTimer);
+    displayTimer = setInterval(() => {
+      if (lastUsd === null) return;
+      const left = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+      setStatus(true, `实时 · 下次刷新 ${left}s`);
+    }, 1000);
+  }
+
+  els.interval.addEventListener("change", scheduleNext);
+  els.refreshBtn.addEventListener("click", () => { refresh(); scheduleNext(); });
+  els.clearBtn.addEventListener("click", () => {
+    history = []; lastUsd = lastCny = null; lastAlertKey = "";
+    saveHistory(); updateStats(); drawChart();
+    showToast("已清空", "走势记录已重置");
+  });
+  els.notifyBtn.addEventListener("click", async () => {
+    if (!("Notification" in window)) { showToast("不支持", "当前浏览器不支持桌面通知"); return; }
+    const p = await Notification.requestPermission();
+    showToast("通知权限", p === "granted" ? "已开启价格提醒 ✅" : "未授权");
+  });
+
+  window.addEventListener("resize", drawChart);
+
+  if (history.length) {
+    lastUsd = history[history.length - 1].usd;
+    lastCny = history[history.length - 1].cny;
+    updateStats(); drawChart();
+  }
+  scheduleNext();
+  startDisplay();
+})();
+</script>
+</body>
+</html>
