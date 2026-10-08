@@ -170,6 +170,7 @@
         <div class="alert-row">
           <div class="field"><input type="number" id="alertAbove" placeholder="高于 ≥" step="0.1" /></div>
           <div class="field"><input type="number" id="alertBelow" placeholder="低于 ≤" step="0.1" /></div>
+          <button class="btn primary" id="saveAlertBtn">保存预警</button>
         </div>
       </div>
       <div class="field">
@@ -204,6 +205,7 @@
   const GOLD_CODE = "hf_GC";             // 纽约黄金（美元/盎司）
   const DOMESTIC_CODE = "sge_au9999";    // 上海金交所 AU99.99（元/克）
   const HISTORY_KEY = "goldMonitorHistory_v2";
+  const ALERT_KEY = "goldMonitorAlert_v1";
   const MAX_POINTS = 500;
 
   const $ = (id) => document.getElementById(id);
@@ -214,12 +216,17 @@
     chart: $("chart"), chartHint: $("chartHint"),
     statMax: $("statMax"), statMin: $("statMin"), statAvg: $("statAvg"), statN: $("statN"),
     interval: $("interval"), rateInput: $("rateInput"),
-    alertAbove: $("alertAbove"), alertBelow: $("alertBelow"),
+    alertAbove: $("alertAbove"), alertBelow: $("alertBelow"), saveAlertBtn: $("saveAlertBtn"),
     notifyBtn: $("notifyBtn"), clearBtn: $("clearBtn"), refreshBtn: $("refreshBtn"),
     toast: $("toast"), toastTitle: $("toastTitle"), toastBody: $("toastBody"),
   };
 
   let history = loadHistory();
+  (function restoreAlert() {
+    const a = loadAlert();
+    els.alertAbove.value = a.above || "";
+    els.alertBelow.value = a.below || "";
+  })();
   let lastUsd = null, lastCny = null, lastRate = 7.1;
   let timer = null, displayTimer = null, nextAt = 0;
 
@@ -229,6 +236,18 @@
   }
   function saveHistory() {
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
+  }
+  function loadAlert() {
+    try { const a = JSON.parse(localStorage.getItem(ALERT_KEY)); if (a && typeof a === "object") return a; } catch (e) {}
+    return { above: "", below: "" };
+  }
+  function saveAlert() {
+    try {
+      localStorage.setItem(ALERT_KEY, JSON.stringify({
+        above: (els.alertAbove.value || "").trim(),
+        below: (els.alertBelow.value || "").trim()
+      }));
+    } catch (e) {}
   }
   function fmt(n, d = 2) {
     return Number(n).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -431,6 +450,12 @@
 
   els.interval.addEventListener("change", scheduleNext);
   els.refreshBtn.addEventListener("click", () => { refresh(); scheduleNext(); });
+  els.alertAbove.addEventListener("input", saveAlert);
+  els.alertBelow.addEventListener("input", saveAlert);
+  els.saveAlertBtn.addEventListener("click", () => {
+    saveAlert();
+    showToast("已保存", "价格预警设置已保存，刷新页面不丢失");
+  });
   els.clearBtn.addEventListener("click", () => {
     history = []; lastUsd = lastCny = null; lastAlertKey = "";
     saveHistory(); updateStats(); drawChart();
