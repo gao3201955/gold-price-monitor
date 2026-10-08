@@ -72,6 +72,10 @@
   .field input:focus, .field select:focus { border-color: var(--gold); }
   .alert-row { display: flex; gap: 10px; align-items: flex-end; }
   .alert-row .field { flex: 1; margin: 0; }
+  .alert-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .alert-list li { display: flex; align-items: center; gap: 6px; font-size: 13px; background: rgba(245,196,81,.1); border: 1px solid rgba(245,196,81,.35); color: var(--gold); padding: 5px 10px; border-radius: 8px; }
+  .alert-list li.empty { background: transparent; border: none; color: var(--text-dim); }
+  .alert-list .del-alert { cursor: pointer; border: none; background: transparent; color: var(--gold); font-size: 16px; line-height: 1; padding: 0 2px; }
   .btn {
     padding: 10px 16px; border-radius: 10px; border: 1px solid var(--card-border);
     background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; font-size: 13px;
@@ -166,11 +170,18 @@
         <input type="number" id="rateInput" value="7.10" step="0.01" />
       </div>
       <div class="field">
-        <label>价格预警（元/克）</label>
+        <label>价格预警（元/克，可设多个）</label>
         <div class="alert-row">
-          <div class="field"><input type="number" id="alertAbove" placeholder="高于 ≥" step="0.1" /></div>
-          <div class="field"><input type="number" id="alertBelow" placeholder="低于 ≤" step="0.1" /></div>
-          <button class="btn primary" id="saveAlertBtn">保存预警</button>
+          <select id="alertDir" style="flex:0 0 110px">
+            <option value="up">高于 ≥</option>
+            <option value="down">低于 ≤</option>
+          </select>
+          <div class="field"><input type="number" id="alertVal" placeholder="目标价位" step="0.1" /></div>
+          <button class="btn primary" id="addAlertBtn">添加</button>
+        </div>
+        <ul id="alertList" class="alert-list"></ul>
+        <div class="hint" style="font-size:12px;color:var(--text-dim);margin-top:8px">
+          设置自动保存，刷新不丢失；触发时弹窗 + 桌面通知 + 提示音
         </div>
       </div>
       <div class="field">
@@ -205,7 +216,8 @@
   const GOLD_CODE = "hf_GC";             // 纽约黄金（美元/盎司）
   const DOMESTIC_CODE = "sge_au9999";    // 上海金交所 AU99.99（元/克）
   const HISTORY_KEY = "goldMonitorHistory_v2";
-  const ALERT_KEY = "goldMonitorAlert_v1";
+  const ALERTS_KEY = "goldMonitorAlerts_v2";
+  const RATE_KEY = "goldMonitorRate_v2";
   const MAX_POINTS = 500;
 
   const $ = (id) => document.getElementById(id);
@@ -216,17 +228,19 @@
     chart: $("chart"), chartHint: $("chartHint"),
     statMax: $("statMax"), statMin: $("statMin"), statAvg: $("statAvg"), statN: $("statN"),
     interval: $("interval"), rateInput: $("rateInput"),
-    alertAbove: $("alertAbove"), alertBelow: $("alertBelow"), saveAlertBtn: $("saveAlertBtn"),
+    alertDir: $("alertDir"), alertVal: $("alertVal"), addAlertBtn: $("addAlertBtn"), alertList: $("alertList"),
     notifyBtn: $("notifyBtn"), clearBtn: $("clearBtn"), refreshBtn: $("refreshBtn"),
     toast: $("toast"), toastTitle: $("toastTitle"), toastBody: $("toastBody"),
   };
 
   let history = loadHistory();
-  (function restoreAlert() {
-    const a = loadAlert();
-    els.alertAbove.value = a.above || "";
-    els.alertBelow.value = a.below || "";
+  let alerts = loadAlerts();
+  (function restoreSettings() {
+    renderAlertList();
+    const r = loadRate();
+    els.rateInput.value = (r && !isNaN(parseFloat(r))) ? r : "7.10";
   })();
+  let audioCtx = null;
   let lastUsd = null, lastCny = null, lastRate = 7.1;
   let timer = null, displayTimer = null, nextAt = 0;
 
@@ -237,17 +251,21 @@
   function saveHistory() {
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
   }
-  function loadAlert() {
-    try { const a = JSON.parse(localStorage.getItem(ALERT_KEY)); if (a && typeof a === "object") return a; } catch (e) {}
-    return { above: "", below: "" };
-  }
-  function saveAlert() {
+  function loadAlerts() {
     try {
-      localStorage.setItem(ALERT_KEY, JSON.stringify({
-        above: (els.alertAbove.value || "").trim(),
-        below: (els.alertBelow.value || "").trim()
-      }));
+      const a = JSON.parse(localStorage.getItem(ALERTS_KEY));
+      if (Array.isArray(a)) return a.filter(x => x && (x.dir === "up" || x.dir === "down") && !isNaN(x.val));
     } catch (e) {}
+    return [];
+  }
+  function saveAlerts() {
+    try { localStorage.setItem(ALERTS_KEY, JSON.stringify(alerts)); } catch (e) {}
+  }
+  function loadRate() {
+    try { return localStorage.getItem(RATE_KEY); } catch (e) { return null; }
+  }
+  function saveRate() {
+    try { localStorage.setItem(RATE_KEY, els.rateInput.value); } catch (e) {}
   }
   function fmt(n, d = 2) {
     return Number(n).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -373,20 +391,52 @@
   }
 
   let lastAlertKey = "";
-  function fireAlert(type, msg, cny) {
-    const key = type + ":" + msg;
+  function initAudio() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    } catch (e) {}
+  }
+  function beep() {
+    try {
+      if (!audioCtx) return;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = "sine"; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.6);
+      o.start(); o.stop(audioCtx.currentTime + 0.6);
+    } catch (e) {}
+  }
+  function fireAlert(type, msg, cny, key) {
     if (key === lastAlertKey) return;
     lastAlertKey = key;
     showToast("🔔 价格预警触发", `${msg}（当前 ${fmt(cny)} 元/克）`, type);
     if (Notification && Notification.permission === "granted") {
-      new Notification("黄金价格预警", { body: `${msg}（当前 ${fmt(cny)} 元/克）` });
+      new Notification("价格预警", { body: `${msg}（当前 ${fmt(cny)} 元/克）` });
     }
+    beep();
   }
   function checkAlerts(cny) {
-    const above = parseFloat(els.alertAbove.value);
-    const below = parseFloat(els.alertBelow.value);
-    if (!isNaN(above) && cny >= above) fireAlert("up", `国内金价已 ≥ ${fmt(above)} 元/克`, cny);
-    if (!isNaN(below) && cny <= below) fireAlert("down", `国内金价已 ≤ ${fmt(below)} 元/克`, cny);
+    for (const a of alerts) {
+      if (a.dir === "up" && cny >= a.val) fireAlert("up", `国内金价已 ≥ ${fmt(a.val)} 元/克`, cny, "up:" + a.val);
+      if (a.dir === "down" && cny <= a.val) fireAlert("down", `国内金价已 ≤ ${fmt(a.val)} 元/克`, cny, "down:" + a.val);
+    }
+  }
+  function renderAlertList() {
+    if (!alerts.length) { els.alertList.innerHTML = '<li class="empty">暂无预警，添加后自动保存</li>'; return; }
+    els.alertList.innerHTML = alerts.map((a, i) =>
+      `<li>${a.dir === "up" ? "≥" : "≤"} ${fmt(a.val)} 元/克 <button class="del-alert" data-i="${i}" title="删除">×</button></li>`
+    ).join("");
+  }
+  function addAlert() {
+    const val = parseFloat(els.alertVal.value);
+    if (isNaN(val)) { showToast("提示", "请输入有效的目标价位"); return; }
+    alerts.push({ dir: els.alertDir.value, val });
+    saveAlerts(); renderAlertList(); els.alertVal.value = "";
+  }
+  function removeAlert(i) {
+    alerts.splice(i, 1); saveAlerts(); renderAlertList();
   }
 
   async function refresh() {
@@ -450,11 +500,12 @@
 
   els.interval.addEventListener("change", scheduleNext);
   els.refreshBtn.addEventListener("click", () => { refresh(); scheduleNext(); });
-  els.alertAbove.addEventListener("input", saveAlert);
-  els.alertBelow.addEventListener("input", saveAlert);
-  els.saveAlertBtn.addEventListener("click", () => {
-    saveAlert();
-    showToast("已保存", "价格预警设置已保存，刷新页面不丢失");
+  els.rateInput.addEventListener("input", saveRate);
+  els.addAlertBtn.addEventListener("click", addAlert);
+  els.alertVal.addEventListener("keydown", (e) => { if (e.key === "Enter") addAlert(); });
+  els.alertList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".del-alert");
+    if (btn) removeAlert(Number(btn.dataset.i));
   });
   els.clearBtn.addEventListener("click", () => {
     history = []; lastUsd = lastCny = null; lastAlertKey = "";
@@ -462,6 +513,7 @@
     showToast("已清空", "走势记录已重置");
   });
   els.notifyBtn.addEventListener("click", async () => {
+    initAudio();
     if (!("Notification" in window)) { showToast("不支持", "当前浏览器不支持桌面通知"); return; }
     const p = await Notification.requestPermission();
     showToast("通知权限", p === "granted" ? "已开启价格提醒 ✅" : "未授权");
