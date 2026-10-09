@@ -166,7 +166,7 @@
         </select>
       </div>
       <div class="field">
-        <label>汇率（仅金交所取不到时换算兜底，1美元=？元）</label>
+        <label>汇率（自动获取美元兑人民币实时汇率，取不到时可用此手动填）</label>
         <input type="number" id="rateInput" value="7.10" step="0.01" />
       </div>
       <div class="field">
@@ -218,6 +218,7 @@
   const HISTORY_KEY = "goldMonitorHistory_v2";
   const ALERTS_KEY = "goldMonitorAlerts_v2";
   const RATE_KEY = "goldMonitorRate_v2";
+  const RATE_FX_CODE = "fx_susdcny";      // 腾讯外汇：美元兑在岸人民币
   const MAX_POINTS = 500;
 
   const $ = (id) => document.getElementById(id);
@@ -302,6 +303,32 @@
       const n = parseFloat(p);
       if (!isNaN(n) && n >= lo && n <= hi) return n;
     }
+    return null;
+  }
+
+  // —— 自动对接实时汇率：腾讯外汇（国内优先）→ OpenExchangeRate（CORS 兜底）——
+  async function fetchLiveRate() {
+    // 1) 腾讯外汇（美元兑在岸人民币），与金价同源，国内浏览器可直连、绕跨域
+    try {
+      await jsonpTencent([RATE_FX_CODE]);
+      const v = getTencentVar(RATE_FX_CODE);
+      if (typeof v === "string" && v.trim()) {
+        const r = parseFloat(v.split(",")[0]);
+        if (!isNaN(r) && r > 4 && r < 10) return { rate: r, src: "腾讯财经" };
+      }
+    } catch (e) {}
+    // 2) OpenExchangeRate（标准 CORS，浏览器 fetch 可用，海外兜底）
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch("https://open.er-api.com/v6/latest/USD", { signal: ctrl.signal });
+      clearTimeout(to);
+      if (res.ok) {
+        const j = await res.json();
+        const r = j && j.rates && j.rates.CNY;
+        if (r && !isNaN(r)) return { rate: r, src: "OpenExchangeRate" };
+      }
+    } catch (e) {}
     return null;
   }
 
@@ -454,8 +481,15 @@
       let cny = null, cnyEstimated = false;
       const d = getTencentVar(DOMESTIC_CODE);
       if (d) cny = pickPrice(d.split(","), 200, 5000);
+
+      // 自动对接实时汇率：腾讯外汇（国内优先）→ OpenExchangeRate（CORS 兜底）
+      const auto = await fetchLiveRate();
+      const useAuto = !!(auto && !isNaN(auto.rate));
+      const rate = useAuto ? auto.rate : (parseFloat(els.rateInput.value) || 7.1);
+      lastRate = rate;
+      if (useAuto) els.rateInput.value = rate.toFixed(4); // 回填显示当前实时汇率
+
       if (cny === null) {
-        const rate = parseFloat(els.rateInput.value) || 7.1;
         cny = (usd / OZ_TO_G) * rate;
         cnyEstimated = true;
       }
@@ -469,8 +503,8 @@
       renderChange(els.cnyChg, cny, prevCny);
       els.usdTime.textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN");
       els.rateInfo.textContent = cnyEstimated
-        ? `汇率 ${fmt(parseFloat(els.rateInput.value) || 7.1, 3)}（手动换算）`
-        : "上海金交所实时";
+        ? (useAuto ? `实时汇率 ${fmt(rate, 4)} · ${auto.src}（自动换算）` : `汇率 ${fmt(rate, 3)}（手动换算）`)
+        : `上海金交所实时 · 汇率 ${fmt(rate, 4)}`;
 
       history.push({ t: Date.now(), usd, cny });
       if (history.length > MAX_POINTS) history = history.slice(-MAX_POINTS);
